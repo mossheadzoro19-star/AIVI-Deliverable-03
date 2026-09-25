@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import time
 
@@ -8,7 +9,8 @@ from models import MatchResult
 from prompt import SYSTEM_PROMPT
 
 DEFAULT_MODEL = "gemini-3.8-flash"
-MAX_ATTEMPTS = 3
+DEFAULT_FALLBACK_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+MAX_ATTEMPTS_PER_MODEL = 2
 
 def sanitize_json(text: str) -> str:
     text = text.strip()
@@ -57,12 +59,19 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
         temperature=0.0,
     )
 
+    configured_fallbacks = [item.strip() for item in os.getenv("GEMINI_FALLBACK_MODELS", "").split(",") if item.strip()]
+    candidates = []
+    for candidate in [model, *configured_fallbacks, *DEFAULT_FALLBACK_MODELS]:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
     last_error = None
 
-    for attempt in range(MAX_ATTEMPTS):
+    for candidate_model in candidates:
+        for attempt in range(MAX_ATTEMPTS_PER_MODEL):
         try:
             response = client.models.generate_content(
-                model=model,
+                model=candidate_model,
                 contents=user_prompt,
                 config=config,
             )
@@ -117,7 +126,7 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
                 )
 
             if isinstance(exc, (json.JSONDecodeError, ValueError)):
-                if attempt < MAX_ATTEMPTS - 1:
+                if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
                     time.sleep(0.25)
                     continue
                 return MatchResult(
@@ -130,4 +139,4 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
 
             break
 
-    raise RuntimeError(f"Evaluation failed: {last_error}")
+    raise RuntimeError(f"Evaluation failed after model fallbacks: {last_error}")
