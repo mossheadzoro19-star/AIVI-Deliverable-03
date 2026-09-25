@@ -7,6 +7,9 @@ from google.genai import types
 from models import MatchResult
 from prompt import SYSTEM_PROMPT
 
+DEFAULT_MODEL = "gemini-3.8-flash"
+MAX_ATTEMPTS = 3
+
 def sanitize_json(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
@@ -31,34 +34,100 @@ GEMINI_RESPONSE_SCHEMA = {
     "required": ["status", "match_score", "top_strengths", "missing_skills", "summary"],
 }
 
-def evaluate(resume: str, jd: str, api_key: str, model: str = "gemini-2.5-flash") -> MatchResult:
+def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> MatchResult:
     if len(resume.strip()) < 40:
-        return MatchResult(status="insufficient_evidence", match_score=0, top_strengths=[], missing_skills=[], summary="The resume does not contain enough evidence.\nNo score was produced.")
+        return MatchResult(
+            status="insufficient_evidence",
+            match_score=0,
+            top_strengths=[],
+            missing_skills=[],
+            summary="The resume does not contain enough evidence.\nNo score was produced.",
+        )
+
     client = genai.Client(api_key=api_key)
-    user_prompt = "RESUME START\n" + resume + "\nRESUME END\n\nJOB DESCRIPTION START\n" + jd + "\nJOB DESCRIPTION END"
-    config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, response_mime_type="application/json", response_json_schema=GEMINI_RESPONSE_SCHEMA, temperature=0.0)
+    user_prompt = (
+        "RESUME START\n" + resume +
+        "\nRESUME END\n\nJOB DESCRIPTION START\n" + jd +
+        "\nJOB DESCRIPTION END"
+    )
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        response_mime_type="application/json",
+        response_json_schema=GEMINI_RESPONSE_SCHEMA,
+        temperature=0.0,
+    )
+
     last_error = None
-    for attempt in range(3):
+
+    for attempt in range(MAX_ATTEMPTS):
         try:
-            response = client.models.generate_content(model=model, contents=user_prompt, config=config)
+            response = client.models.generate_content(
+                model=model,
+                contents=user_prompt,
+                config=config,
+            )
             data = json.loads(sanitize_json(response.text))
             return MatchResult.model_validate(data)
+
         except Exception as exc:
             last_error = exc
             msg = str(exc).lower()
+
             rate_limited = "429" in msg or ("rate" in msg and "limit" in msg)
             timed_out = "timeout" in msg or "timed out" in msg
-            if attempt < 2 and (rate_limited or timed_out):
-                time.sleep((2**attempt) + random.uniform(0, 0.5))
+            service_unavailable = (
+                "503" in msg
+                or "service unavailable" in msg
+                or "temporarily unavailable" in msg
+                or "high demand" in msg
+            )
+
+            retryable = rate_limited or timed_out or service_unavailable
+
+            if attempt < MAX_ATTEMPTS - 1 and retryable:
+                delay = (2 ** attempt) + random.uniform(0, 0.5)
+                time.sleep(delay)
                 continue
+
             if rate_limited:
-                return MatchResult(status="rate_limited", match_score=0, top_strengths=[], missing_skills=[], summary="The API rate limit was reached.\nNo score was produced after bounded retries.")
+                return MatchResult(
+                    status="rate_limited",
+                    match_score=0,
+                    top_strengths=[],
+                    missing_skills=[],
+                    summary="The API rate limit was reached.\nNo score was produced after bounded retries.",
+                )
+
             if timed_out:
-                return MatchResult(status="timeout", match_score=0, top_strengths=[], missing_skills=[], summary="The model request timed out.\nNo score was produced after bounded retries.")
+                return MatchResult(
+                    status="timeout",
+                    match_score=0,
+                    top_strengths=[],
+                    missing_skills=[],
+                    summary="The model request timed out.\nNo score was produced after bounded retries.",
+                )
+
+            if service_unavailable:
+                return MatchResult(
+                    status="evaluation_unavailable",
+                    match_score=0,
+                    top_strengths=[],
+                    missing_skills=[],
+                    summary="The model service is temporarily unavailable.\nNo score was produced after bounded retries.",
+                )
+
             if isinstance(exc, (json.JSONDecodeError, ValueError)):
-                if attempt < 2:
+                if attempt < MAX_ATTEMPTS - 1:
                     time.sleep(0.25)
                     continue
-                return MatchResult(status="evaluation_unavailable", match_score=0, top_strengths=[], missing_skills=[], summary="The model response failed validation.\nNo score was produced.")
+                return MatchResult(
+                    status="evaluation_unavailable",
+                    match_score=0,
+                    top_strengths=[],
+                    missing_skills=[],
+                    summary="The model response failed validation.\nNo score was produced.",
+                )
+
             break
+
     raise RuntimeError(f"Evaluation failed: {last_error}")
