@@ -10,7 +10,8 @@ from prompt import SYSTEM_PROMPT
 
 DEFAULT_MODEL = "gemini-3.8-flash"
 DEFAULT_FALLBACK_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash"]
-MAX_ATTEMPTS_PER_MODEL = 2
+MAX_ATTEMPTS_PER_MODEL = 3
+BASE_RETRY_DELAY_SECONDS = 2
 
 def sanitize_json(text: str) -> str:
     text = text.strip()
@@ -43,20 +44,14 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
             match_score=0,
             top_strengths=[],
             missing_skills=[],
-            summary="The resume does not contain enough evidence.\nNo score was produced.",
+            summary="The resume does not contain enough evidence.\\nNo score was produced.",
         )
 
     client = genai.Client(api_key=api_key)
     user_prompt = (
-        "RESUME START\n" + resume +
-        "\nRESUME END\n\nJOB DESCRIPTION START\n" + jd +
-        "\nJOB DESCRIPTION END"
-    )
-    config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        response_mime_type="application/json",
-        response_json_schema=GEMINI_RESPONSE_SCHEMA,
-        temperature=0.0,
+        "RESUME START\\n" + resume +
+        "\\nRESUME END\\n\\nJOB DESCRIPTION START\\n" + jd +
+        "\\nJOB DESCRIPTION END"
     )
 
     configured_fallbacks = [
@@ -72,19 +67,35 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
         if normalized and normalized not in candidates:
             candidates.append(normalized)
 
+    # Interactions API is the current Google-recommended interface for new projects.
+    # It also avoids the automatic-function-calling warning from direct
+    # Models.generate_content calls and supports structured JSON output.
+    response_format = {
+        "type": "text",
+        "mime_type": "application/json",
+        "schema": GEMINI_RESPONSE_SCHEMA,
+    }
+
     last_error = None
     attempted_models = []
 
     for candidate_model in candidates:
         attempted_models.append(candidate_model)
+
         for attempt in range(MAX_ATTEMPTS_PER_MODEL):
             try:
-                response = client.models.generate_content(
+                interaction = client.interactions.create(
                     model=candidate_model,
-                    contents=user_prompt,
-                    config=config,
+                    system_instruction=SYSTEM_PROMPT,
+                    input=user_prompt,
+                    response_format=response_format,
+                    generation_config={"temperature": 0.0},
                 )
-                data = json.loads(sanitize_json(response.text))
+                output_text = getattr(interaction, "output_text", None)
+                if not output_text:
+                    raise ValueError("Gemini returned no output text")
+
+                data = json.loads(sanitize_json(output_text))
                 return MatchResult.model_validate(data)
 
             except Exception as exc:
@@ -92,64 +103,62 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
                 msg = str(exc).lower()
 
                 rate_limited = "429" in msg or ("rate" in msg and "limit" in msg)
-                timed_out = "timeout" in msg or "timed out" in msg
+                timed_out = "timeout" in msg or "timed out" in msg or "504" in msg
                 service_unavailable = (
                     "503" in msg
                     or "service unavailable" in msg
                     or "temporarily unavailable" in msg
                     or "high demand" in msg
                 )
+                unavailable_model = (
+                    "404" in msg
+                    or "not_found" in msg
+                    or "not found" in msg
+                )
 
                 if isinstance(exc, (json.JSONDecodeError, ValueError)):
                     if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
-                        time.sleep(0.25)
+                        time.sleep(0.5)
                         continue
                     return MatchResult(
                         status="evaluation_unavailable",
                         match_score=0,
                         top_strengths=[],
                         missing_skills=[],
-                        summary="The model response failed validation.\nNo score was produced.",
+                        summary="The model response failed validation.\\nNo score was produced.",
                     )
 
-                if rate_limited:
-                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
-                        time.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                        continue
-                    return MatchResult(
-                        status="rate_limited",
-                        match_score=0,
-                        top_strengths=[],
-                        missing_skills=[],
-                        summary="The API rate limit was reached.\nNo score was produced after bounded retries.",
-                    )
-
-                if timed_out:
-                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
-                        time.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                        continue
-                    return MatchResult(
-                        status="timeout",
-                        match_score=0,
-                        top_strengths=[],
-                        missing_skills=[],
-                        summary="The model request timed out.\nNo score was produced after bounded retries.",
-                    )
-
-                if service_unavailable:
-                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
-                        time.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                        continue
+                if unavailable_model:
+                    # Try the next model; this model is not available to this API project.
                     break
 
-                # A 404 means this particular model is unavailable to the API key.
-                # Try the next configured model instead of treating it as a global failure.
-                if "404" in msg or "not_found" in msg or "not found" in msg:
+                if rate_limited or service_unavailable or timed_out:
+                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
+                        delay = BASE_RETRY_DELAY_SECONDS * (2 ** attempt)
+                        time.sleep(delay + random.uniform(0, 0.75))
+                        continue
+
+                    # Move to the next model after bounded retries.
                     break
 
                 break
 
     attempted = ", ".join(attempted_models)
+    if isinstance(last_error, Exception):
+        msg = str(last_error).lower()
+        if "429" in msg or ("rate" in msg and "limit" in msg):
+            status = "rate_limited"
+            summary = "The Gemini API rate limit was reached.\\nNo score was produced after bounded retries."
+        elif "timeout" in msg or "timed out" in msg or "504" in msg:
+            status = "timeout"
+            summary = "The Gemini request timed out.\\nNo score was produced after bounded retries."
+        else:
+            status = "evaluation_unavailable"
+            summary = "The Gemini service was temporarily unavailable.\\nNo score was produced after bounded retries."
+    else:
+        status = "evaluation_unavailable"
+        summary = "The Gemini evaluation service was unavailable.\\nNo score was produced."
+
     raise RuntimeError(
         f"Evaluation failed after trying models: {attempted}. Last provider error: {last_error}"
     )
