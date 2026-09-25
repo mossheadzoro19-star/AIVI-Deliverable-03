@@ -9,7 +9,7 @@ from models import MatchResult
 from prompt import SYSTEM_PROMPT
 
 DEFAULT_MODEL = "gemini-3.8-flash"
-DEFAULT_FALLBACK_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
+DEFAULT_FALLBACK_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash"]
 MAX_ATTEMPTS_PER_MODEL = 2
 
 def sanitize_json(text: str) -> str:
@@ -66,12 +66,17 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
     ]
     candidates = []
     for candidate in [model, *configured_fallbacks, *DEFAULT_FALLBACK_MODELS]:
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
+        normalized = candidate.strip()
+        if normalized.startswith("models/"):
+            normalized = normalized.removeprefix("models/")
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
 
     last_error = None
+    attempted_models = []
 
     for candidate_model in candidates:
+        attempted_models.append(candidate_model)
         for attempt in range(MAX_ATTEMPTS_PER_MODEL):
             try:
                 response = client.models.generate_content(
@@ -137,6 +142,14 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
                         continue
                     break
 
+                # A 404 means this particular model is unavailable to the API key.
+                # Try the next configured model instead of treating it as a global failure.
+                if "404" in msg or "not_found" in msg or "not found" in msg:
+                    break
+
                 break
 
-    raise RuntimeError(f"Evaluation failed after model fallbacks: {last_error}")
+    attempted = ", ".join(attempted_models)
+    raise RuntimeError(
+        f"Evaluation failed after trying models: {attempted}. Last provider error: {last_error}"
+    )
