@@ -4,9 +4,9 @@ from client import sanitize_json
 from models import MatchResult
 
 def test_sanitize_markdown_json():
-    raw = '```json\n{"status":"success","match_score":72,"top_strengths":["Python"],"missing_skills":["Docker"],"summary":"Strong Python foundation.\\nDocker experience is not evidenced."}\n```'
-    obj = MatchResult.model_validate(json.loads(sanitize_json(raw)))
-    assert obj.match_score == 72
+    raw='```json\n{"status":"success","match_score":72,"top_strengths":["Python"],"missing_skills":["Docker"],"summary":"Strong Python foundation.\\nDocker is not evidenced."}\n```'
+    obj=MatchResult.model_validate(json.loads(sanitize_json(raw)))
+    assert obj.match_score==72
 
 def test_reject_extra_fields():
     with pytest.raises(Exception):
