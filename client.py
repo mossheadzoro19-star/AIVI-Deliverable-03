@@ -59,7 +59,11 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
         temperature=0.0,
     )
 
-    configured_fallbacks = [item.strip() for item in os.getenv("GEMINI_FALLBACK_MODELS", "").split(",") if item.strip()]
+    configured_fallbacks = [
+        item.strip()
+        for item in os.getenv("GEMINI_FALLBACK_MODELS", "").split(",")
+        if item.strip()
+    ]
     candidates = []
     for candidate in [model, *configured_fallbacks, *DEFAULT_FALLBACK_MODELS]:
         if candidate and candidate not in candidates:
@@ -69,74 +73,70 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
 
     for candidate_model in candidates:
         for attempt in range(MAX_ATTEMPTS_PER_MODEL):
-        try:
-            response = client.models.generate_content(
-                model=candidate_model,
-                contents=user_prompt,
-                config=config,
-            )
-            data = json.loads(sanitize_json(response.text))
-            return MatchResult.model_validate(data)
+            try:
+                response = client.models.generate_content(
+                    model=candidate_model,
+                    contents=user_prompt,
+                    config=config,
+                )
+                data = json.loads(sanitize_json(response.text))
+                return MatchResult.model_validate(data)
 
-        except Exception as exc:
-            last_error = exc
-            msg = str(exc).lower()
+            except Exception as exc:
+                last_error = exc
+                msg = str(exc).lower()
 
-            rate_limited = "429" in msg or ("rate" in msg and "limit" in msg)
-            timed_out = "timeout" in msg or "timed out" in msg
-            service_unavailable = (
-                "503" in msg
-                or "service unavailable" in msg
-                or "temporarily unavailable" in msg
-                or "high demand" in msg
-            )
-
-            retryable = rate_limited or timed_out or service_unavailable
-
-            if attempt < MAX_ATTEMPTS - 1 and retryable:
-                delay = (2 ** attempt) + random.uniform(0, 0.5)
-                time.sleep(delay)
-                continue
-
-            if rate_limited:
-                return MatchResult(
-                    status="rate_limited",
-                    match_score=0,
-                    top_strengths=[],
-                    missing_skills=[],
-                    summary="The API rate limit was reached.\nNo score was produced after bounded retries.",
+                rate_limited = "429" in msg or ("rate" in msg and "limit" in msg)
+                timed_out = "timeout" in msg or "timed out" in msg
+                service_unavailable = (
+                    "503" in msg
+                    or "service unavailable" in msg
+                    or "temporarily unavailable" in msg
+                    or "high demand" in msg
                 )
 
-            if timed_out:
-                return MatchResult(
-                    status="timeout",
-                    match_score=0,
-                    top_strengths=[],
-                    missing_skills=[],
-                    summary="The model request timed out.\nNo score was produced after bounded retries.",
-                )
+                if isinstance(exc, (json.JSONDecodeError, ValueError)):
+                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
+                        time.sleep(0.25)
+                        continue
+                    return MatchResult(
+                        status="evaluation_unavailable",
+                        match_score=0,
+                        top_strengths=[],
+                        missing_skills=[],
+                        summary="The model response failed validation.\nNo score was produced.",
+                    )
 
-            if service_unavailable:
-                return MatchResult(
-                    status="evaluation_unavailable",
-                    match_score=0,
-                    top_strengths=[],
-                    missing_skills=[],
-                    summary="The model service is temporarily unavailable.\nNo score was produced after bounded retries.",
-                )
+                if rate_limited:
+                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
+                        time.sleep((2 ** attempt) + random.uniform(0, 0.5))
+                        continue
+                    return MatchResult(
+                        status="rate_limited",
+                        match_score=0,
+                        top_strengths=[],
+                        missing_skills=[],
+                        summary="The API rate limit was reached.\nNo score was produced after bounded retries.",
+                    )
 
-            if isinstance(exc, (json.JSONDecodeError, ValueError)):
-                if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
-                    time.sleep(0.25)
-                    continue
-                return MatchResult(
-                    status="evaluation_unavailable",
-                    match_score=0,
-                    top_strengths=[],
-                    missing_skills=[],
-                    summary="The model response failed validation.\nNo score was produced.",
-                )
+                if timed_out:
+                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
+                        time.sleep((2 ** attempt) + random.uniform(0, 0.5))
+                        continue
+                    return MatchResult(
+                        status="timeout",
+                        match_score=0,
+                        top_strengths=[],
+                        missing_skills=[],
+                        summary="The model request timed out.\nNo score was produced after bounded retries.",
+                    )
 
-            break
+                if service_unavailable:
+                    if attempt < MAX_ATTEMPTS_PER_MODEL - 1:
+                        time.sleep((2 ** attempt) + random.uniform(0, 0.5))
+                        continue
+                    break
+
+                break
 
     raise RuntimeError(f"Evaluation failed after model fallbacks: {last_error}")
