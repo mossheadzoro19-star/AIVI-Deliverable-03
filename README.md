@@ -69,3 +69,8 @@ This repository implements Deliverable 03 and applies the production controls de
 - safe failure states
 - bounded retries
 - post-generation Pydantic validation
+
+
+## Streamlit UI
+
+Run `streamlit run app.py` to launch the browser demo. It supports pasted resume/JD text and `.txt`, `.md`, or text-based `.pdf` uploads. Scanned/image-only PDFs are rejected with a clear OCR-required message rather than being treated as usable resume evidence.
