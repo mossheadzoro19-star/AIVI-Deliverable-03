@@ -1,93 +1,264 @@
-# AIVI Deliverable 03 — Gemini Resume–JD Matcher
+# AIVI Deliverable 03 — AI Resume–JD Matcher
 
-Standalone Gemini API implementation for the AIVI AI Engineering Challenge.
+> **AI Engineering Challenge — LLM Audit & Pipeline Optimization**  
+> Production-style Gemini API implementation with structured output, prompt-injection controls, safe failure handling, automated tests, and a public Streamlit demo.
 
-## What is included
+## 🚀 Live Demo
 
-- Resume text + Job Description input
-- Gemini API integration
-- Gemini-compatible structured JSON response schema
-- Strict application-level JSON validation with Pydantic
-- JSON sanitization
-- Prompt-injection protection
-- 0–100 match score
-- Top strengths
-- Missing skills
-- Exactly two-line summary
-- Bounded handling for invalid input, rate limits, timeouts and malformed JSON
-- Automated tests
-- GitHub Codespaces development environment
+### [Open AIVI Resume Intelligence](https://aivi-resume-intelligence.streamlit.app/)
 
-## Run in GitHub Codespaces
+The deployed application allows users to:
 
-This repository includes a `.devcontainer/devcontainer.json` configuration for Python 3.12.
+- Paste or upload a resume
+- Paste or upload a job description
+- Generate a **0–100 match score**
+- View **top strengths**
+- View **missing skills**
+- Read a concise **two-line summary**
+- Inspect the validated **raw JSON output**
 
-After opening the repository in Codespaces:
+> **Security:** The Gemini API key is stored in Streamlit Secrets and is never committed to this repository or displayed in the public UI.
 
-    pip install -r requirements.txt
+## 📦 Source Code
 
-Create a local `.env` file inside the Codespace:
+### [GitHub Repository](https://github.com/mossheadzoro19-star/AIVI-Deliverable-03)
 
-    GEMINI_API_KEY=YOUR_ACTUAL_GEMINI_API_KEY
-    GEMINI_MODEL=gemini-2.5-flash
+The repository contains the complete D03 implementation, tests, sample inputs, deployment configuration, and documentation.
 
-The `.env` file is ignored by Git and must never be committed.
+## 🎯 Deliverable 03 Objectives
 
-Verify the key is loaded without printing the secret:
+| Challenge requirement | Implementation |
+|---|---|
+| Gemini API integration | `google-genai` client |
+| Resume + JD evaluation | Evidence-based matching prompt |
+| Match score | Integer constrained to 0–100 |
+| Top strengths | Resume-supported strengths only |
+| Missing skills | JD requirements not evidenced by resume |
+| Two-line summary | Pydantic validator enforces exactly 2 non-empty lines |
+| Strict JSON | Gemini response schema + Pydantic validation |
+| JSON sanitization | Markdown-fence and JSON-object extraction |
+| Prompt-injection resistance | Resume/JD explicitly treated as untrusted data |
+| Invalid/insufficient input | Explicit failure statuses |
+| Rate-limit/timeout/503 handling | Bounded retries with exponential backoff and model fallback |
+| Malformed response handling | Validation and fail-closed behavior |
+| Public demonstration | Streamlit Community Cloud deployment |
 
-    python -c "from dotenv import load_dotenv; import os; load_dotenv('.env'); k=os.getenv('GEMINI_API_KEY'); print('API key loaded:', bool(k))"
+## 🧠 Architecture
 
-Run the live demo:
+```text
+Resume + Job Description
+          │
+          ▼
+   Streamlit Web UI
+          │
+          ▼
+   Input / file handling
+          │
+          ▼
+ Gemini Interactions API
+          │
+          ▼
+ System prompt + JSON schema
+          │
+          ▼
+ JSON sanitization
+          │
+          ▼
+   Pydantic validation
+          │
+          ▼
+ Safe structured result
+          │
+          ▼
+ Streamlit presentation
+```
 
-    python main.py --resume-file samples/resume.txt --jd-file samples/job_description.txt
+### Trust boundary
 
-## Direct Gemini API connectivity test
+Resume and job-description content is **untrusted data**. Instructions embedded inside documents are not treated as system instructions.
 
-If the application reports an authentication problem, test the API directly with the `x-goog-api-key` header. A successful HTTP 200 response confirms API connectivity independently of the application code.
+The evaluator is instructed not to:
 
-## Windows alternative
+- obey embedded prompt-injection commands
+- invent candidate technologies
+- invent experience or achievements
+- treat JD requirements as candidate evidence
+- generate a score for unusable input
+- fabricate a result when the API fails
 
-For local Windows execution, `setup_windows.bat` can create the local `.env`, install dependencies and run the demo.
+## 🛡️ Reliability & Safety Controls
 
-## Expected output
+### Model availability
 
-The program prints one JSON object containing `status`, `match_score`, `top_strengths`, `missing_skills`, and a two-line `summary`. The actual score and lists are generated from the supplied resume and job description.
+The application uses:
 
-## Security
+```text
+gemini-3.8-flash
+      ↓
+gemini-3.7-flash
+      ↓
+gemini-3.5-flash
+```
 
-Resume and Job Description text are treated as untrusted data. Instructions embedded inside them cannot override the system prompt.
-The Gemini generation schema is intentionally kept separate from the Pydantic application schema because Gemini's response-schema interface does not accept every JSON Schema keyword emitted by Pydantic.
-Failed API/model calls never produce a guessed score.
-Never commit an API key, token or `.env` file.
+Unavailable models are skipped and the next configured model is attempted.
 
-## Challenge mapping
+### Temporary provider failures
 
-This repository implements Deliverable 03 and applies the production controls designed in Deliverable 02:
-- evidence-first resume/JD matching
-- prompt-injection resistance
-- strict structured output
-- safe failure states
-- bounded retries
-- post-generation Pydantic validation
+For rate limits, timeouts, and temporary service unavailability, the client uses bounded retries with exponential backoff and jitter.
 
+If all attempts fail, the application fails closed and produces **no guessed score**.
 
-## Streamlit UI
+### Structured output
 
-Run `streamlit run app.py` to launch the browser demo. It supports pasted resume/JD text and `.txt`, `.md`, or text-based `.pdf` uploads. Scanned/image-only PDFs are rejected with a clear OCR-required message rather than being treated as usable resume evidence.
+The application validates the final response with a strict Pydantic model:
 
-## Deploy as a persistent web app
+- extra fields rejected
+- score constrained to 0–100
+- summary constrained to exactly two non-empty lines
+- explicit failure states
 
-The recommended public deployment is Streamlit Community Cloud. It deploys the GitHub repository directly and provides a `streamlit.app` URL. The app can sleep after 12 hours without traffic and wakes when visited; this is platform hibernation, not a requirement to restart the app manually. 
+## 📄 Document Input
 
-1. Open the Streamlit Community Cloud workspace at https://share.streamlit.io/ and sign in with GitHub.
-2. Create an app and select repository `mossheadzoro19-star/AIVI-Deliverable-03`, branch `main`, and entrypoint `app.py`.
-3. In the deployment Advanced settings / app Secrets, add:
+Supported:
 
-       GEMINI_API_KEY = "YOUR_API_KEY"
-       GEMINI_MODEL = "gemini-3.8-flash"
-       GEMINI_FALLBACK_MODELS = "gemini-3.7-flash,gemini-3.5-flash"
+- TXT
+- MD
+- text-based PDF
+- pasted text
 
-4. Never commit the API key or a `.streamlit/secrets.toml` file. Secrets are read securely from Streamlit Cloud and fall back to local environment variables for Codespaces.
-5. Keep the deployment Python version aligned with the repository Codespace version (Python 3.12).
+Scanned/image-only PDFs are not silently interpreted. The application reports that OCR is required rather than treating missing extraction as candidate evidence.
 
-After deployment, GitHub commits automatically trigger app updates. If dependency changes are made, Community Cloud rebuilds the environment from `requirements.txt`.
+## 🧪 Validation Evidence
+
+The live deployment was validated with a controlled resume/JD pair.
+
+Observed successful result:
+
+- **Status:** `success`
+- **Match score:** `55/100`
+- **Strengths:** Python, SQL, Git, Machine Learning, internship/software-development experience
+- **Missing skills:** REST APIs, Docker, Kubernetes, Cloud fundamentals
+- **Summary:** two non-empty lines
+- **Raw JSON:** rendered successfully in the UI
+
+This confirms the end-to-end path from browser input → Gemini evaluation → structured validation → public UI.
+
+Additional implementation validation includes automated tests covering JSON sanitization, extra-field rejection, score bounds, summary format, injection-output schema, and invalid-input contract.
+
+## 🧪 Controlled Test Case
+
+### Resume
+
+```text
+ARJUN KUMAR
+
+EDUCATION
+Bachelor of Engineering in Computer Science Engineering
+Sunrise Institute of Technology | 2022–2026
+
+SKILLS
+Python, SQL, Machine Learning, Git
+
+EXPERIENCE
+Software Engineering Intern | 6 months
+Worked on software development tasks involving Python, SQL, debugging, and application testing.
+
+PROJECTS
+Image Classification System
+Built an image classification project using Python and machine learning techniques.
+
+Student Web Application
+Developed a web application using JavaScript for managing student information.
+```
+
+### Job Description
+
+```text
+SOFTWARE ENGINEER – AI/ML
+
+Required: Python, Machine Learning, SQL, Git, REST APIs,
+Docker, Kubernetes, and Cloud fundamentals.
+
+Responsibilities include Python development, ML solutions,
+SQL databases, REST APIs, Docker, Kubernetes, testing,
+and software development.
+```
+
+The deployed system correctly surfaced the explicitly evidenced skills while listing REST APIs, Docker, Kubernetes, and Cloud fundamentals as missing.
+
+## 🧰 Repository Structure
+
+```text
+AIVI-Deliverable-03/
+├── app.py
+├── client.py
+├── document_utils.py
+├── main.py
+├── models.py
+├── prompt.py
+├── requirements.txt
+├── samples/
+├── tests/
+├── .github/workflows/
+├── .devcontainer/
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+## ▶️ Run Locally / in Codespaces
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create `.env` locally:
+
+```text
+GEMINI_API_KEY=YOUR_API_KEY
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODELS=gemini-3.7-flash,gemini-3.5-flash
+```
+
+Run the Streamlit UI:
+
+```bash
+streamlit run app.py
+```
+
+Run the CLI:
+
+```bash
+python main.py --resume-file samples/resume.txt --jd-file samples/job_description.txt
+```
+
+Run tests:
+
+```bash
+pytest -q
+```
+
+## 🔐 Secrets & Deployment
+
+For Streamlit Community Cloud, store the following in **App Settings → Secrets**:
+
+```toml
+GEMINI_API_KEY = "YOUR_API_KEY"
+GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_FALLBACK_MODELS = "gemini-3.7-flash,gemini-3.5-flash"
+```
+
+Never commit the real API key, `.env`, or a `.streamlit/secrets.toml` file.
+
+The public app may hibernate when inactive and wake when visited; it does not require the developer's Codespace to remain running.
+
+## 🔗 Links
+
+- **Live application:** https://aivi-resume-intelligence.streamlit.app/
+- **GitHub repository:** https://github.com/mossheadzoro19-star/AIVI-Deliverable-03
+
+---
+
+**Deliverable 03 status: Implemented, deployed, and live-validated.**
