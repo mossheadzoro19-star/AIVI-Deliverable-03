@@ -74,3 +74,20 @@ This repository implements Deliverable 03 and applies the production controls de
 ## Streamlit UI
 
 Run `streamlit run app.py` to launch the browser demo. It supports pasted resume/JD text and `.txt`, `.md`, or text-based `.pdf` uploads. Scanned/image-only PDFs are rejected with a clear OCR-required message rather than being treated as usable resume evidence.
+
+## Deploy as a persistent web app
+
+The recommended public deployment is Streamlit Community Cloud. It deploys the GitHub repository directly and provides a `streamlit.app` URL. The app can sleep after 12 hours without traffic and wakes when visited; this is platform hibernation, not a requirement to restart the app manually. 
+
+1. Open the Streamlit Community Cloud workspace at https://share.streamlit.io/ and sign in with GitHub.
+2. Create an app and select repository `mossheadzoro19-star/AIVI-Deliverable-03`, branch `main`, and entrypoint `app.py`.
+3. In the deployment Advanced settings / app Secrets, add:
+
+       GEMINI_API_KEY = "YOUR_API_KEY"
+       GEMINI_MODEL = "gemini-3.8-flash"
+       GEMINI_FALLBACK_MODELS = "gemini-3.7-flash,gemini-3.5-flash"
+
+4. Never commit the API key or a `.streamlit/secrets.toml` file. Secrets are read securely from Streamlit Cloud and fall back to local environment variables for Codespaces.
+5. Keep the deployment Python version aligned with the repository Codespace version (Python 3.12).
+
+After deployment, GitHub commits automatically trigger app updates. If dependency changes are made, Community Cloud rebuilds the environment from `requirements.txt`.
