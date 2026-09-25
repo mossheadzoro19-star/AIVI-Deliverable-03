@@ -36,7 +36,7 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = "gemini-2.5-flash"
         return MatchResult(status="insufficient_evidence", match_score=0, top_strengths=[], missing_skills=[], summary="The resume does not contain enough evidence.\nNo score was produced.")
     client = genai.Client(api_key=api_key)
     user_prompt = "RESUME START\n" + resume + "\nRESUME END\n\nJOB DESCRIPTION START\n" + jd + "\nJOB DESCRIPTION END"
-    config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, response_mime_type="application/json", response_schema=GEMINI_RESPONSE_SCHEMA, temperature=0.0)
+    config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, response_mime_type="application/json", response_json_schema=GEMINI_RESPONSE_SCHEMA, temperature=0.0)
     last_error = None
     for attempt in range(3):
         try:
