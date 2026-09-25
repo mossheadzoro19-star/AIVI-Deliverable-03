@@ -159,6 +159,12 @@ def evaluate(resume: str, jd: str, api_key: str, model: str = DEFAULT_MODEL) -> 
         status = "evaluation_unavailable"
         summary = "The Gemini evaluation service was unavailable.\\nNo score was produced."
 
-    raise RuntimeError(
-        f"Evaluation failed after trying models: {attempted}. Last provider error: {last_error}"
+    # Fail closed: return a schema-valid failure object instead of raising a provider
+    # exception into the UI. No guessed/default score is ever returned.
+    return MatchResult(
+        status=status,
+        match_score=0,
+        top_strengths=[],
+        missing_skills=[],
+        summary=summary,
     )
