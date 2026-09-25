@@ -6,64 +6,66 @@ Standalone Gemini API implementation for the AIVI AI Engineering Challenge.
 
 - Resume text + Job Description input
 - Gemini API integration
-- Strict JSON validation with Pydantic
+- Gemini-compatible structured JSON response schema
+- Strict application-level JSON validation with Pydantic
 - JSON sanitization
 - Prompt-injection protection
 - 0–100 match score
 - Top strengths
 - Missing skills
 - Exactly two-line summary
-- Error handling for invalid input, rate limits, timeouts and malformed JSON
+- Bounded handling for invalid input, rate limits, timeouts and malformed JSON
 - Automated tests
+- GitHub Codespaces development environment
 
-## Easiest way to run on Windows
+## Run in GitHub Codespaces
 
-1. Clone/download this repository.
-2. Open the repository folder.
-3. Double-click **setup_windows.bat**.
-4. When it asks for the Gemini API key, paste your key and press Enter.
-5. The script creates a local `.env`, installs dependencies and runs the live Gemini demo.
+This repository includes a `.devcontainer/devcontainer.json` configuration for Python 3.12.
 
-**Important:** The API key is stored only in the local `.env` file. `.env` is listed in `.gitignore`, so it must not be committed to GitHub.
+After opening the repository in Codespaces:
 
-## Manual run
+    pip install -r requirements.txt
 
-Create a local file named `.env`:
+Create a local `.env` file inside the Codespace:
 
-```env
-GEMINI_API_KEY=YOUR_ACTUAL_GEMINI_API_KEY
-GEMINI_MODEL=gemini-2.5-flash
-```
+    GEMINI_API_KEY=YOUR_ACTUAL_GEMINI_API_KEY
+    GEMINI_MODEL=gemini-2.5-flash
 
-Then run:
+The `.env` file is ignored by Git and must never be committed.
 
-```bash
-python -m pip install -r requirements.txt
-python main.py --resume-file samples/resume.txt --jd-file samples/job_description.txt
-```
+Verify the key is loaded without printing the secret:
+
+    python -c "from dotenv import load_dotenv; import os; load_dotenv('.env'); k=os.getenv('GEMINI_API_KEY'); print('API key loaded:', bool(k))"
+
+Run the live demo:
+
+    python main.py --resume-file samples/resume.txt --jd-file samples/job_description.txt
+
+## Direct Gemini API connectivity test
+
+If the application reports an authentication problem, test the API directly with the `x-goog-api-key` header. A successful HTTP 200 response confirms API connectivity independently of the application code.
+
+## Windows alternative
+
+For local Windows execution, `setup_windows.bat` can create the local `.env`, install dependencies and run the demo.
 
 ## Expected output
 
-The program prints one JSON object containing:
-
-```json
-{
-  "status": "success",
-  "match_score": 0,
-  "top_strengths": [],
-  "missing_skills": [],
-  "summary": "Two-line evidence-based summary."
-}
-```
-
-The actual score and lists are generated from the supplied resume and job description.
+The program prints one JSON object containing `status`, `match_score`, `top_strengths`, `missing_skills`, and a two-line `summary`. The actual score and lists are generated from the supplied resume and job description.
 
 ## Security
 
-Resume and Job Description text are treated as untrusted data. Instructions embedded inside them cannot override the system prompt. Failed API/model calls never produce a guessed score.
-
+Resume and Job Description text are treated as untrusted data. Instructions embedded inside them cannot override the system prompt.
+The Gemini generation schema is intentionally kept separate from the Pydantic application schema because Gemini's response-schema interface does not accept every JSON Schema keyword emitted by Pydantic.
+Failed API/model calls never produce a guessed score.
 Never commit an API key, token or `.env` file.
 
 ## Challenge mapping
 
-This repository implements Deliverable 03 and applies the production controls designed in Deliverable 02.
+This repository implements Deliverable 03 and applies the production controls designed in Deliverable 02:
+- evidence-first resume/JD matching
+- prompt-injection resistance
+- strict structured output
+- safe failure states
+- bounded retries
+- post-generation Pydantic validation
