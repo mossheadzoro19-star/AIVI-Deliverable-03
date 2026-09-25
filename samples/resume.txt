@@ -1,0 +1,5 @@
+Arjun Kumar
+Computer Science Engineering student.
+Skills: Python, SQL, Machine Learning, React, JavaScript, Git.
+Projects: Image classification system using Python and machine learning; student web application using React and JavaScript.
+Experience: Software Engineering Intern, worked on Python, SQL, debugging and application testing.
