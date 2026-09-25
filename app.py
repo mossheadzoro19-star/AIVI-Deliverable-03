@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 import streamlit as st
@@ -8,6 +9,7 @@ from client import DEFAULT_MODEL, evaluate
 from document_utils import extract_document_text
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 def get_setting(name: str, default: str = "") -> str:
@@ -138,6 +140,8 @@ if st.button("Analyze Resume", type="primary", use_container_width=True):
     except ValueError as exc:
         st.error(str(exc))
     except Exception as exc:
+        # Keep provider diagnostics in Streamlit logs without exposing secrets in the UI.
+        logger.exception("Evaluation failed: %s", exc)
         # Never expose raw provider errors or secrets in the public UI.
         msg = str(exc).lower()
         if "429" in msg or ("rate" in msg and "limit" in msg):
