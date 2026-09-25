@@ -80,6 +80,9 @@ if st.button("Analyze Resume", type="primary", use_container_width=True):
         load_dotenv(override=True)
         api_key = get_setting("GEMINI_API_KEY")
         model = get_setting("GEMINI_MODEL", DEFAULT_MODEL)
+        fallback_models = get_setting("GEMINI_FALLBACK_MODELS")
+        if fallback_models:
+            os.environ["GEMINI_FALLBACK_MODELS"] = fallback_models
 
         if not api_key:
             st.error("GEMINI_API_KEY is not configured. Add it to .env locally or Streamlit secrets when deployed.")
@@ -134,5 +137,21 @@ if st.button("Analyze Resume", type="primary", use_container_width=True):
 
     except ValueError as exc:
         st.error(str(exc))
-    except Exception:
-        st.error("The evaluation could not be completed. Check the terminal logs for the technical error.")
+    except Exception as exc:
+        # Never expose raw provider errors or secrets in the public UI.
+        msg = str(exc).lower()
+        if "429" in msg or ("rate" in msg and "limit" in msg):
+            detail = "The Gemini API rate limit was reached after bounded retries."
+        elif "401" in msg or "403" in msg or "permission" in msg or "api key" in msg:
+            detail = "The Gemini API rejected the configured credentials or permissions."
+        elif "404" in msg or "not found" in msg:
+            detail = "The configured Gemini model was not available."
+        elif "503" in msg or "service unavailable" in msg or "high demand" in msg:
+            detail = "The Gemini service was temporarily unavailable after bounded retries."
+        elif "timeout" in msg or "timed out" in msg:
+            detail = "The Gemini request timed out after bounded retries."
+        else:
+            detail = "The evaluation service returned an unexpected error."
+
+        st.error(detail)
+        st.info("No score was produced. Check Manage app → Logs for the provider-side error details.")
