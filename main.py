@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from client import evaluate
+from client import DEFAULT_MODEL, evaluate
 
 
 def read_text(path: str) -> str:
@@ -24,7 +24,7 @@ def main() -> int:
     try:
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is not set")
 
