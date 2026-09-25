@@ -9,6 +9,18 @@ from document_utils import extract_document_text
 
 load_dotenv()
 
+
+def get_setting(name: str, default: str = "") -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    try:
+        value = str(st.secrets.get(name, "")).strip()
+    except Exception:
+        value = ""
+    return value or default
+
+
 st.set_page_config(
     page_title="AIVI Resume Intelligence",
     page_icon="🤖",
@@ -20,9 +32,9 @@ st.caption("Gemini-powered resume ↔ job description matching with structured o
 
 with st.sidebar:
     st.subheader("Configuration")
-    configured_model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    configured_model = get_setting("GEMINI_MODEL", DEFAULT_MODEL)
     st.write(f"Model: `{configured_model}`")
-    st.write("API key: " + ("configured" if os.getenv("GEMINI_API_KEY") else "not configured"))
+    st.write("API key: " + ("configured" if get_setting("GEMINI_API_KEY") else "not configured"))
     st.info("Resume and job-description content are treated as untrusted data by the evaluation prompt.")
 
 left, right = st.columns(2)
@@ -66,8 +78,8 @@ st.divider()
 if st.button("Analyze Resume", type="primary", use_container_width=True):
     try:
         load_dotenv(override=True)
-        api_key = os.getenv("GEMINI_API_KEY")
-        model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+        api_key = get_setting("GEMINI_API_KEY")
+        model = get_setting("GEMINI_MODEL", DEFAULT_MODEL)
 
         if not api_key:
             st.error("GEMINI_API_KEY is not configured. Add it to .env locally or Streamlit secrets when deployed.")
